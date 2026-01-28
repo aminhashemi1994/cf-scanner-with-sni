@@ -2,7 +2,7 @@
 
 OUT="ips.txt"
 SNI="your.example.com"
-ATTEMPTS=10
+ATTEMPTS=5
 TIMEOUT=2
 which masscan &>/dev/null || eval 'echo "please install masscan package first." && exit 1'
 [[ -f good_ips ]] && rm good_ips
