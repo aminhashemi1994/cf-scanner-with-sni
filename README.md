@@ -1,66 +1,136 @@
-#!/usr/bin/env bash
+# Cloudflare TLS Reliability Scanner
 
-OUT="ips.txt"
-SNI="your.example.com"
-ATTEMPTS=10
-TIMEOUT=2
-which masscan &>/dev/null || eval 'echo "please install masscan package first." && exit 1'
-[[ -f good_ips ]] && rm good_ips
-echo "[*] Masscan: scanning Cloudflare ranges..."
+A Bash-based tool to **discover Cloudflare edge IPs with open port 443** and **evaluate their TLS handshake reliability** against a specific SNI.
 
-sudo masscan -p443 \
-  104.16.0.0/13 104.24.0.0/14 173.245.48.0/20 \
-  103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 \
-  141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 \
-  188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 \
-  162.158.0.0/15 172.64.0.0/13 131.0.72.0/22 \
-  --max-rate 5000 \
-  --wait 5 \
-  -oL "$OUT"
+This script is useful in environments where:
 
-[[ ! -s "$OUT" ]] && { echo "no clean ip(s) found :-("; exit 1; }
+* Direct outbound access is restricted
+* Only ports **80/443** are allowed
+* Traffic must be proxied through Cloudflare IPs
+* Stable and repeatable TLS connectivity is critical (e.g. ProxyPass, reverse proxies, tunneling)
 
-awk '/open/ {print $4}' "$OUT" | sort -u | while read -r ip; do
-  echo
-  echo "[*] Initial TLS check: $ip"
+---
 
-  # ---- FIRST TLS CHECK (gate) ----
-  if ! timeout 3 openssl s_client \
-        -connect "$ip:443" \
-        -servername "$SNI" \
-        </dev/null >/dev/null 2>&1; then
-    echo "[SKIP] TLS failed on first try: $ip"
-    continue
-  fi
+## ✨ Features
 
-  echo "[PASS] Initial TLS OK, running reliability test..."
+* Scans official Cloudflare IP ranges using **masscan**
+* Filters IPs with port **443 open**
+* Performs an **initial TLS gate check** (fast reject of bad IPs)
+* Runs **multiple TLS handshake attempts** to measure reliability
+* Categorizes IPs as **GOOD / NORMAL / BAD**
+* Saves reliable IPs into a reusable file (`good_ips`)
 
-  # ---- RELIABILITY TEST ----
-  success=1   # first success already counted
+---
 
-  for ((i=2; i<=ATTEMPTS; i++)); do
-    if timeout 3 openssl s_client \
-          -connect "$ip:443" \
-          -servername "$SNI" \
-          </dev/null >/dev/null 2>&1; then
-      ((success++))
-      echo "  attempt $i: OK"
-    else
-      echo "  attempt $i: FAIL"
-    fi
-  done
+## 📦 Requirements
 
-  case $success in
-    4|5)
-      echo "[GOOD]   $ip ($success/$ATTEMPTS handshakes)"
-      echo "$ip" >> good_ips
-      ;;
-    2|3)
-      echo "[NORMAL] $ip ($success/$ATTEMPTS handshakes)"
-      ;;
-    *)
-      echo "[BAD]    $ip ($success/$ATTEMPTS handshakes)"
-      ;;
-  esac
+* Linux
+* `bash`
+* `masscan`
+* `openssl`
+* `timeout` (usually from `coreutils`)
+* `sudo` privileges (required by masscan)
 
-done
+Install masscan (example):
+
+```bash
+sudo apt install masscan
+```
+
+---
+
+## ⚙️ Configuration
+
+Edit the variables at the top of the script:
+
+```bash
+OUT="ips.txt"                 # masscan output file
+SNI="your.example.com"        # Server Name Indication (IMPORTANT)
+ATTEMPTS=10                    # Total TLS handshake attempts per IP
+TIMEOUT=2                      # Timeout per handshake (seconds)
+```
+
+⚠️ **SNI must match a valid hostname served behind Cloudflare**, otherwise TLS checks will fail.
+
+---
+
+## 🚀 Usage
+
+```bash
+chmod +x scan.sh
+./scan.sh
+```
+
+The script will:
+
+1. Scan Cloudflare IP ranges on port 443
+2. Perform an initial TLS handshake test
+3. Run reliability checks on passing IPs
+4. Output results to the console
+5. Save GOOD IPs into `good_ips`
+
+---
+
+## 📊 Result Classification
+
+| Status | Condition                         |
+| ------ | --------------------------------- |
+| GOOD   | 4–5 successful TLS handshakes     |
+| NORMAL | 2–3 successful TLS handshakes     |
+| BAD    | Less than 2 successful handshakes |
+
+Only **GOOD** IPs are written to `good_ips`.
+
+---
+
+## 📁 Output Files
+
+* `ips.txt` — raw masscan output
+* `good_ips` — Cloudflare IPs with stable TLS connectivity
+
+---
+
+## 🔐 Why This Exists
+
+In restricted or filtered networks, **not all Cloudflare IPs behave equally**.
+Some edges:
+
+* Drop TLS handshakes
+* Reset connections
+* Are unstable over time
+
+This tool helps you **select only reliable Cloudflare IPs** for:
+
+* Reverse proxies
+* ProxyPass setups
+* Tunnels
+* Whitelisted outbound access
+
+---
+
+## ⚠️ Notes
+
+* Scanning large IP ranges may trigger IDS/IPS systems
+* Adjust `--max-rate` if you experience packet loss
+* Cloudflare IP ranges may change over time
+
+---
+
+## 📜 License
+
+MIT License
+
+---
+
+## 🤝 Contributing
+
+PRs and improvements are welcome:
+
+* Better TLS validation
+* IPv6 support
+* Parallel TLS checks
+* JSON / CSV output
+
+---
+
+Happy scanning ☁️
